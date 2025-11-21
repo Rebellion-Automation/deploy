@@ -384,9 +384,14 @@ if [ "$RUN_SERVICE" = true ]; then
 	fi
 	# The postgres service needs a volume to persist data, so we need to create the volume if it does not exist
 	if [ "$SERVICE_NAME" = "postgres" ]; then
-		if ! docker volume create xnav_pg_data; then
-			echo "Failed to create postgres volume"
-			exit 1
+		if ! docker volume inspect xnav_pg_data &>/dev/null; then
+			if ! docker volume create xnav_pg_data; then
+				echo "Failed to create postgres volume"
+				exit 1
+			fi
+			echo "Created postgres volume xnav_pg_data"
+		else
+			echo "Postgres volume xnav_pg_data already exists"
 		fi
 	fi
 	docker compose -f /home/$USER/.rebellion/docker-compose.$SERVICE_NAME.yml up -d
