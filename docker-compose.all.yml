@@ -1,0 +1,98 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: xnav-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - xnav_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - xnav_net
+
+  dbready:
+    image: ghcr.io/rebellion-automation/xnav-dbready:latest
+    container_name: xnav-dbready
+    restart: "no"  # Only run once, don't restart on failure
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - xnav_net
+    # This service will exit after migrations complete (exit code 0) or fail (exit code 1)
+
+  api:
+    image: ghcr.io/rebellion-automation/xnav-api:latest
+    container_name: xnav-api
+    restart: unless-stopped
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - FRONTEND_ADDRESSES=${FRONTEND_ADDRESSES}
+      - BACKEND_ADDRESSES=${BACKEND_ADDRESSES:-}
+      - SIMULATED=${SIMULATED:-True}
+      - CUBE_ID=${CUBE_ID}
+    ports:
+      - "5029:5029"
+    depends_on:
+      dbready:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    networks:
+      - xnav_net
+    # TODO: Add health endpoint to API and re-enable healthcheck
+    # healthcheck:
+    #   test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
+
+  frontend:
+    image: ghcr.io/rebellion-automation/xnav-static-frontend:latest
+    container_name: xnav-frontend
+    restart: unless-stopped
+    environment:
+    - FRONTEND_ADDRESSES=${FRONTEND_ADDRESSES}
+    # Backend addresses are optional and determines predefined routes in the frontend
+    - BACKEND_ADDRESSES=${BACKEND_ADDRESSES:-}
+    - CUBE_ID=${CUBE_ID}
+    ports:
+      - "80:8080"
+    depends_on:
+      dbready:
+        condition: service_completed_successfully
+      # TODO: Change back to service_healthy once API health endpoint is implemented
+      api:
+        condition: service_started
+    networks:
+      - xnav_net
+
+volumes:
+  xnav_pg_data:
+    name: xnav_pg_data
+    external: true
+
+networks:
+  xnav_net:
+    driver: bridge

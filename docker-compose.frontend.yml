@@ -1,0 +1,13 @@
+services:
+  frontend:
+    image: ghcr.io/rebellion-automation/xnav-static-frontend:latest
+    container_name: xnav-frontend
+    restart: unless-stopped
+    environment:
+    - FRONTEND_ADDRESSES=${FRONTEND_ADDRESSES}
+    # Backend addresses are optional and determines predefined routes in the frontend
+    - BACKEND_ADDRESSES=${BACKEND_ADDRESSES:-}
+    ports:
+      - "80:8080"
+    networks:
+      - xnav_net

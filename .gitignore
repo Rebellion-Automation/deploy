@@ -1,0 +1,6 @@
+# Sensitive environment variables
+.env
+*.env
+
+# Include the .env.template file
+!.env.template
