@@ -339,8 +339,9 @@ if [ "$UPDATE_REPO" = true ] || [ ! -d /home/$USER/.rebellion ] || [ -z "$(ls -A
 				fi
 			done
 
-			# Pull the latest changes from the repository
-			git -C /home/$USER/.rebellion pull
+			# Force overwrite local changes with the latest changes from the repository
+			# This is safe because we've already backed up the local files above
+			git -C /home/$USER/.rebellion reset --hard origin/main
 
 			# Make an empty .env file to be set by the user
 			touch /home/$USER/.rebellion/.env
