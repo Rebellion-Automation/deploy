@@ -37,3 +37,7 @@ services:
         condition: service_completed_successfully
     networks:
       - xnav_net
+
+networks:
+  xnav_net:
+    driver: bridge

@@ -11,3 +11,7 @@ services:
       - "80:8080"
     networks:
       - xnav_net
+
+networks:
+  xnav_net:
+    driver: bridge

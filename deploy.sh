@@ -1,18 +1,60 @@
 #!/bin/bash
 
 function show_help() {
-	echo "Usage: $0 [-flags][arguments]"
+	echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+	echo "║                    Rebellion Deployment Script Help                          ║"
+	echo "╚══════════════════════════════════════════════════════════════════════════════╝"
 	echo ""
-	echo "Options:"
-	echo "  -p|--install-prerequisites: Install the prerequisites for the deployment. This includes docker and git."
-	echo "  -a|--add-user: Add a new least-privileged user account for the deployment. Includes access to docker and git."
-	echo "  --username: Your github username. This will be used to pull the docker images from the github container registry."
-	echo "  --pat: Your personal access token for the github container registry."
-	echo "  -u|--update: Update the repository to the latest version. This will be run automatically on initial deployment."
-	echo "  -r|--run [service]: Run a specific service. This will run the docker-compose.yml file with the service name provided."
-	echo "  -s|--stop [service]: Stop a specific service. This will stop the docker-compose.yml file with the service name provided."
-	echo "  --no-auth: Skip authentication with the github container registry. This is useful for starting the services without updating the docker images."
-	echo "  -h: Show this help message"
+	echo "Usage:"
+	echo "  $0 [OPTIONS]"
+	echo ""
+	echo "Setup Options:"
+	echo "  -p, --install-prerequisites"
+	echo "      Install the prerequisites for the deployment."
+	echo "      This includes docker and git."
+	echo ""
+	echo "  -a, --add-user"
+	echo "      Add a new least-privileged user account for the deployment."
+	echo "      Includes access to docker and git."
+	echo ""
+	echo "Authentication Options:"
+	echo "  --username USERNAME"
+	echo "      Your GitHub username. This will be used to pull the docker images"
+	echo "      from the GitHub container registry."
+	echo ""
+	echo "  --pat TOKEN"
+	echo "      Your personal access token for the GitHub container registry."
+	echo ""
+	echo "  --no-auth"
+	echo "      Skip authentication with the GitHub container registry."
+	echo "      This is useful for starting the services without updating the"
+	echo "      docker images."
+	echo ""
+	echo "Service Management Options:"
+	echo "  -r, --run SERVICE"
+	echo "      Run a specific service. This will run the docker-compose.yml file"
+	echo "      with the service name provided."
+	echo ""
+	echo "  -s, --stop SERVICE"
+	echo "      Stop a specific service. This will stop the docker-compose.yml file"
+	echo "      with the service name provided."
+	echo ""
+	echo "Repository Options:"
+	echo "  -u, --update"
+	echo "      Update the repository to the latest version."
+	echo "      This will be run automatically on initial deployment."
+	echo ""
+	echo "General Options:"
+	echo "  -h, --help"
+	echo "      Show this help message."
+	echo ""
+	echo "Examples:"
+	echo "  $0 --install-prerequisites"
+	echo "  $0 --add-user"
+	echo "  $0 --username myuser --pat mytoken --run api"
+	echo "  $0 --run api --no-auth"
+	echo "  $0 --stop frontend"
+	echo ""
 	exit 0
 }
 
@@ -64,8 +106,6 @@ function install_prerequisites() {
 }
 
 function add_user() {
-		# TODO: Add code to handle --add-user flag here
-	echo "Add user functionality will be executed here"
 	# Set up a user to run docker commands and git without sudo
 	echo "Setting up a user to run docker commands and git without sudo"
 	read -p "Enter the username to set up: " username
@@ -77,6 +117,12 @@ function add_user() {
 		# Create the user with a home directory
 		useradd -m -s /bin/bash "$username"
 		echo "User $username has been created."
+	fi
+
+	# Make sure script is run with sudo
+	if [ "$EUID" -ne 0 ]; then
+		echo "Please run this script with sudo."
+		exit 1
 	fi
 
 	# Set a password for the user (with retry on failure)
@@ -131,6 +177,11 @@ function add_user() {
 		fi
 	done
 
+	# If the docker group does not exist, create it
+	if ! getent group docker &>/dev/null; then
+		sudo groupadd docker
+	fi
+
 	# Add the user to the docker group
 	sudo usermod -aG docker "$username"
 	echo "User $username has been added to the docker group."
@@ -169,7 +220,7 @@ while [[ $# -gt 0 ]]; do
 				echo "Github username is required for the --username flag"
 				exit 1
 			fi
-			shift
+			shift 2
 			;;
 		--pat)
 			GITHUB_PAT=$2
@@ -177,7 +228,7 @@ while [[ $# -gt 0 ]]; do
 				echo "Github personal access token is required for the --pat flag"
 				exit 1
 			fi
-			shift
+			shift 2
 			;;
 		--run | -r)
 			RUN_SERVICE=true
@@ -186,7 +237,7 @@ while [[ $# -gt 0 ]]; do
 				echo "Service name is required for the --run flag"
 				exit 1
 			fi
-			shift
+			shift 2
 			;;
 		--stop | -s)
 			STOP_SERVICE=true
@@ -195,7 +246,7 @@ while [[ $# -gt 0 ]]; do
 				echo "Service name is required for the --stop flag"
 				exit 1
 			fi
-			shift
+			shift 2
 			;;
 		--no-auth)
 			NO_AUTH=true
@@ -230,8 +281,18 @@ fi
 # Above flags will exit upon completion, remaining code will only be executed if none of the above flags are provided
 
 # Check if docker is installed and running, if not, prompt the user to run the --install-prerequisites flag
+if ! command -v docker &>/dev/null; then
+	echo "Docker is not installed. Please run the --install-prerequisites flag to install docker."
+	exit 1
+fi
+
+# Check if docker daemon is running and accessible
 if ! docker info &>/dev/null; then
-	echo "Docker is not installed or running. Please run the --install-prerequisites flag to install docker."
+	echo "Docker daemon is not running or not accessible. Please ensure Docker is running and you have permission to access it."
+	echo "You may need to:"
+	echo "  1. Start Docker (e.g., 'sudo systemctl start docker' on Linux)"
+	echo "  2. Add your user to the docker group (e.g., 'sudo usermod -aG docker $USER' on Linux)"
+	echo "  3. Run this script with appropriate permissions"
 	exit 1
 fi
 # Check if git is installed, if not, prompt the user to run the --install-prerequisites flag
@@ -241,38 +302,74 @@ if ! git --version &>/dev/null; then
 fi
 
 # Update the repository if --update flag is provided, if the directory does not exist, or if the directory is empty
-if [ "$UPDATE_REPO" = true | ! -d /home/$USER/.rebellion | [ -z "$(ls -A /home/$USER/.rebellion)" ] ]; then
+if [ "$UPDATE_REPO" = true ] || [ ! -d /home/$USER/.rebellion ] || [ -z "$(ls -A /home/$USER/.rebellion)" ]; then
 	# Set up .rebellion directory in the current user's home directory
 	# If the directiory already exists, it will not be overwritten
 	mkdir -p /home/$USER/.rebellion
+	
+	# Check if this is a fresh clone or an update
+	WAS_ALREADY_CLONED=false
+	if [ -d /home/$USER/.rebellion/.git ]; then
+		WAS_ALREADY_CLONED=true
+	fi
+	
 	# Case: Directory does not exist or is empty
-	if [ ! -d /home/$USER/.rebellion  | [ -z "$(ls -A /home/$USER/.rebellion)" ] ]; then
+	if [ ! -d /home/$USER/.rebellion ] || [ -z "$(ls -A /home/$USER/.rebellion)" ]; then
 		echo "Directory does not exist or is empty, creating directory and cloning repository"
 		git clone https://github.com/Rebellion-Automation/deploy.git /home/$USER/.rebellion
 	fi
-	# Case: Git repository has been cloned already, pull the latest changes
-	if [ -d /home/$USER/.rebellion/.git ]; then
-		# Backup previous configuration to the backups/ directory, directory will be tagged with the current date and time
-		BACKUP_DATE_TAG=$(date +%Y-%m-%d_%H-%M-%S)
-		mkdir -p /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG
-		cp -r /home/$USER/.rebellion/docker-compose.*.yml /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG/
+	# Case: Git repository has been cloned already (before this run), pull the latest changes
+	if [ "$WAS_ALREADY_CLONED" = true ] && [ -d /home/$USER/.rebellion/.git ]; then
+		# Check if there are any changes to pull before backing up
+		git -C /home/$USER/.rebellion fetch origin
+		LOCAL=$(git -C /home/$USER/.rebellion rev-parse HEAD)
+		REMOTE=$(git -C /home/$USER/.rebellion rev-parse origin/main 2>/dev/null || git -C /home/$USER/.rebellion rev-parse @{u} 2>/dev/null)
+		
+		if [ -z "$REMOTE" ] || [ "$LOCAL" = "$REMOTE" ]; then
+			echo "Already up to date."
+		else
+			# Backup previous configuration to the backups/ directory, directory will be tagged with the current date and time
+			BACKUP_DATE_TAG=$(date +%Y-%m-%d_%H-%M-%S)
+			mkdir -p /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG
+			
+			# Backup all docker-compose files
+			for file in /home/$USER/.rebellion/docker-compose.*.yml; do
+				if [ -f "$file" ]; then
+					cp "$file" /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG/
+				fi
+			done
 
-		# Pull the latest changes from the repository
-		git -C /home/$USER/.rebellion pull
-		echo "Repository updated successfully. Machine specific docker-compose modifications may have to be performed manually if updated on remote."
+			# Pull the latest changes from the repository
+			git -C /home/$USER/.rebellion pull
 
-		# Cross reference the previous configuration with the new configuration to identify changes. Perform this for all files.
-		for file in /home/$USER/.rebellion/; do
-			diff -u $file /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG/$file
-			# If the files are the same, remove the backup file
-			if [ $? -eq 0 ]; then
-				rm -f /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG/$file
-			fi
+			# Make an empty .env file to be set by the user
+			touch /home/$USER/.rebellion/.env
+
+			echo "Repository updated successfully. Machine specific docker-compose modifications may have to be performed manually if updated on remote."
+
+			# Cross reference the previous configuration with the new configuration to identify changes. Perform this for all files.
+			for file in /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG/docker-compose.*.yml; do
+				if [ -f "$file" ]; then
+					# Get the filename without the backup directory path
+					filename=$(basename "$file")
+					current_file="/home/$USER/.rebellion/$filename"
+					
+					# Compare the backup with the current file
+					if [ -f "$current_file" ]; then
+						diff -u "$file" "$current_file" > /dev/null 2>&1
+						# If the files are the same (diff returns 0), remove the backup file
+						if [ $? -eq 0 ]; then
+							rm -f "$file"
+						fi
+					fi
+				fi
+			done
+			
 			# If the backup directory is empty, remove it to keep the backups directory clean
-			if [ -z "$(ls -A /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG)" ]; then
+			if [ -z "$(ls -A /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG 2>/dev/null)" ]; then
 				rm -rf /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG
 			fi
-		done
+		fi
 	fi
 fi
 
@@ -280,14 +377,14 @@ fi
 if [ "$RUN_SERVICE" = true ]; then
 	# Authenticate with the github container registry if --no-auth flag is not provided
 	if [ "$NO_AUTH" = false ]; then
-		if ! docker login -u $GITHUB_USERNAME -p $GITHUB_PAT ghcr.io; then
+		if ! echo "$GITHUB_PAT" | docker login -u $GITHUB_USERNAME --password-stdin ghcr.io; then
 			echo "Failed to authenticate with the github container registry"
 			exit 1
 		fi
 	fi
 	# The postgres service needs a volume to persist data, so we need to create the volume if it does not exist
 	if [ "$SERVICE_NAME" = "postgres" ]; then
-		if ! docker volume create postgres_data; then
+		if ! docker volume create xnav_pg_data; then
 			echo "Failed to create postgres volume"
 			exit 1
 		fi
