@@ -59,6 +59,12 @@ function show_help() {
 }
 
 function install_prerequisites() {
+	# Check if this is run with sudo, if not, exit with error
+	if [ "$EUID" -ne 0 ]; then
+		echo "Please run this script with sudo."
+		exit 1
+	fi
+	
 	# Prerequisite installation:
 	# 1. Just in case any alternate docker installation is used, remove it first.
 	apt remove -y $(dpkg --get-selections docker.io docker-compose docker-compose-v2 docker-doc podman-docker containerd runc | cut -f1) 2>/dev/null || true
@@ -93,7 +99,7 @@ function install_prerequisites() {
 	sleep 2
 
 	# Implement user access controls, add user to docker group
-	sudo usermod -aG docker $USER
+	sudo usermod -aG docker $SUDO_USER
 
 	# Test docker installation (using sudo since group change requires new session)
 	sudo docker run hello-world
@@ -270,6 +276,9 @@ done
 # Install prerequisites if --install-prerequisites flag is provided
 if [ "$INSTALL_PREREQUISITES" = true ]; then
 	install_prerequisites
+	echo "Prerequisites installed successfully. If a new user account needs to be added, run the --add-user flag."
+	echo "Please note that docker installation requires a new sessionto reload the group permissions."
+	echo "If you are ready to deploy the services on the $USER account, run with --update and --run <service>"
 	exit 0
 fi
 
