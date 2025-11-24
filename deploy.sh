@@ -28,7 +28,7 @@ function show_help() {
 	echo "  --no-auth"
 	echo "      Skip authentication with the GitHub container registry."
 	echo "      This is useful for starting the services without updating the"
-	echo "      docker images."
+	echo "      docker images, or if authentication has already been performed."
 	echo ""
 	echo "Service Management Options:"
 	echo "  -r, --run SERVICE"
@@ -277,7 +277,7 @@ done
 if [ "$INSTALL_PREREQUISITES" = true ]; then
 	install_prerequisites
 	echo "Prerequisites installed successfully. If a new user account needs to be added, run the --add-user flag."
-	echo "Please note that docker installation requires a new sessionto reload the group permissions."
+	echo "Please note that docker installation requires a new session to reload the group permissions."
 	echo "If you are ready to deploy the services on the $USER account, run with --update and --run <service>"
 	exit 0
 fi
@@ -326,6 +326,12 @@ if [ "$UPDATE_REPO" = true ] || [ ! -d /home/$USER/.rebellion ] || [ -z "$(ls -A
 	if [ ! -d /home/$USER/.rebellion ] || [ -z "$(ls -A /home/$USER/.rebellion)" ]; then
 		echo "Directory does not exist or is empty, creating directory and cloning repository"
 		git clone https://github.com/Rebellion-Automation/deploy.git /home/$USER/.rebellion
+		
+		# Copy .env.template to .env if template exists and .env doesn't exist
+		if [ -f /home/$USER/.rebellion/.env.template ] && [ ! -f /home/$USER/.rebellion/.env ]; then
+			cp /home/$USER/.rebellion/.env.template /home/$USER/.rebellion/.env
+			echo "Created .env file from .env.template"
+		fi
 	fi
 	# Case: Git repository has been cloned already (before this run), pull the latest changes
 	if [ "$WAS_ALREADY_CLONED" = true ] && [ -d /home/$USER/.rebellion/.git ]; then
@@ -347,13 +353,22 @@ if [ "$UPDATE_REPO" = true ] || [ ! -d /home/$USER/.rebellion ] || [ -z "$(ls -A
 					cp "$file" /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG/
 				fi
 			done
+			
+			# Backup .env file if it exists (to preserve user configuration)
+			ENV_BACKED_UP=false
+			if [ -f /home/$USER/.rebellion/.env ]; then
+				cp /home/$USER/.rebellion/.env /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG/.env
+				ENV_BACKED_UP=true
+			fi
 
 			# Force overwrite local changes with the latest changes from the repository
 			# This is safe because we've already backed up the local files above
 			git -C /home/$USER/.rebellion reset --hard origin/main
-
-			# Make an empty .env file to be set by the user
-			touch /home/$USER/.rebellion/.env
+			
+			# Restore .env file if it was backed up (preserve user configuration)
+			if [ "$ENV_BACKED_UP" = true ]; then
+				cp /home/$USER/.rebellion/backups/$BACKUP_DATE_TAG/.env /home/$USER/.rebellion/.env
+			fi
 
 			echo "Repository updated successfully. Machine specific docker-compose modifications may have to be performed manually if updated on remote."
 
