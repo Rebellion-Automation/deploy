@@ -1,6 +1,42 @@
 # Deployment Instructions
 
-## Easy deployment
+## Deployment with Komodo
+
+The Komodo deployment uses a shared directory at `/opt/rebellion/deploy`, owned by a dedicated service user. Bootstrap the script with `source` so the shell session `cd`s into the deployment directory after initialization.
+
+### Prerequisite setup
+
+On a fresh Debian server, run these steps as **root** to install Docker and create the service user:
+
+```bash
+# 1. Install Docker, git, WireGuard, and enable the Docker service
+source <(curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy.sh) -p
+
+# 2. Create the dedicated service user (owns /opt/rebellion)
+source <(curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy.sh) -a
+```
+
+### Initialize deployment
+
+Switch to the service user and run the bootstrap script. If `/opt/rebellion/deploy` is empty, initialization runs automatically:
+
+```bash
+su [username]
+
+source <(curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy.sh)
+```
+
+When sourced, your shell will `cd` into `/opt/rebellion/deploy`. Initialization also generates a WireGuard keypair at `/opt/rebellion/wireguard/` for connecting to the telemetry ingester (OTLP via Alloy). Register the displayed **public key** with your telemetry administrator before proceeding.
+
+Remove any on-disk bootstrap copy if prompted, then run all further commands from the shared directory:
+
+```bash
+cd /opt/rebellion/deploy && ./deploy.sh --help
+```
+
+**Note:** Only one copy of the deployment should exist on the system, at `/opt/rebellion/deploy`. Do not run the bootstrap script from a downloaded copy after initialization.
+
+## Independent deployment without Komodo
 
 ### Prerequsite setup
 Using a user account with sudo permissions on a fresh install of Ubuntu Server (or debian-like server distro) run this command from a preferred working directory to download the setup script and install prerequisites. Alternatively, local media may be used. Please note that the deploy script can be initially run from any directory, and further installation will be performed in the current active user's `/home` directory. Note that the directories and env files are hidden by default, so use the `-a` flag when performing operations like `ls`
