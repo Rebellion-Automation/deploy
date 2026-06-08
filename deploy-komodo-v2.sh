@@ -1,6 +1,11 @@
 #!/bin/bash
 
-# Bootstrap: source <(curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy.sh)
+# Initial setup requires elevation (run as root or via sudo):
+#   sudo bash -c 'source <(curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy-komodo-v2.sh)'
+#
+# After creating the service user (su <username>), run without sudo so init can
+# clone to /opt/rebellion and cd persists in your shell:
+#   source <(curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy-komodo-v2.sh)
 
 # Color Codes
 RED='\033[0;31m'
@@ -37,6 +42,13 @@ _bootstrap_path() {
 
 _deploy_dir_empty() {
 	[ ! -d "$DEPLOY_DIR" ] || [ -z "$(ls -A "$DEPLOY_DIR" 2>/dev/null)" ]
+}
+
+_prerequisites_installed() {
+	command -v docker &>/dev/null \
+		&& command -v git &>/dev/null \
+		&& command -v wg &>/dev/null \
+		&& systemctl is-active --quiet docker 2>/dev/null
 }
 
 _check_docker_accessible() {
@@ -76,8 +88,13 @@ function show_help() {
 	echo "╚══════════════════════════════════════════════════════════════════════════════╝"
 	echo ""
 	echo "Usage:"
-	echo "  source <(curl -s ${GITHUB_RAW_URL}) [OPTIONS]"
-	echo "  ${DEPLOY_DIR}/deploy.sh [OPTIONS]   (after initial setup)"
+	echo "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL}) [OPTIONS]'   (initial setup)"
+	echo "  source <(curl -s ${GITHUB_RAW_URL}) [OPTIONS]                    (service user)"
+	echo "  ${DEPLOY_DIR}/deploy.sh [OPTIONS]                                (after init)"
+	echo ""
+	echo "  Run elevated with sudo for --install-prerequisites and --add-user."
+	echo "  Without flags, missing prerequisites are installed automatically (root only),"
+	echo "  then you are prompted to create the service user."
 	echo ""
 	echo "Setup Options:"
 	echo "  -p, --install-prerequisites"
@@ -98,16 +115,13 @@ function show_help() {
 	echo ""
 	echo "First-time setup (fresh Debian server):"
 	echo ""
-	echo "  # 1. As root — install prerequisites"
-	echo "  source <(curl -s ${GITHUB_RAW_URL}) -p"
+	echo "  # 1. As root — installs prerequisites and prompts to create the service user"
+	echo "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL})'"
 	echo ""
-	echo "  # 2. As root — create the service user"
-	echo "  source <(curl -s ${GITHUB_RAW_URL}) -a"
-	echo ""
-	echo "  # 3. Switch to the service user"
+	echo "  # 2. Switch to the service user"
 	echo "  su <username>"
 	echo ""
-	echo "  # 4. Initialize deployment (auto-runs if ${DEPLOY_DIR} is empty)"
+	echo "  # 3. Initialize deployment (auto-runs if ${DEPLOY_DIR} is empty)"
 	echo "  source <(curl -s ${GITHUB_RAW_URL})"
 	echo ""
 	echo "After initialization, run all further commands from ${DEPLOY_DIR}:"
@@ -117,7 +131,8 @@ function show_help() {
 
 function install_docker() {
 	if [ "$EUID" -ne 0 ]; then
-		echo "Please run this script with sudo."
+		echo -e "${RED}Please run elevated with sudo.${NC}"
+		echo -e "${YELLOW}  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL}) -p'${NC}"
 		_safe_exit 1
 	fi
 
@@ -147,7 +162,7 @@ function install_docker() {
 	echo -e "${GREEN}Git and WireGuard installed successfully.${NC}"
 
 	echo -e "Do you want to add the current user to the docker group? (y/n)"
-	echo -e "If you want to create a new user instead, select no and use the --add-user flag."
+	echo -e "If you want a dedicated service user instead, select no — you will be prompted to create one next."
 	read -p "Choice: " add_current_user
 	if [[ "$add_current_user" =~ ^[Yy]$ ]]; then
 		target_user="${SUDO_USER:-$USER}"
@@ -163,13 +178,31 @@ function install_docker() {
 		echo -e "${YELLOW}Log out and back in (or run 'newgrp docker') for group membership to take effect.${NC}"
 	else
 		echo -e "${YELLOW}No user was added to the docker group.${NC}"
-		echo -e "${YELLOW}If you need to add a user, use the --add-user flag.${NC}"
+	fi
+}
+
+_prompt_add_service_user() {
+	if [ "$EUID" -ne 0 ]; then
+		return 0
+	fi
+
+	echo ""
+	echo -e "Do you want to create the service user now? (y/n)"
+	echo -e "The service user will own ${DEPLOY_ROOT} and run deployments."
+	read -p "Choice: " create_service_user
+	if [[ "$create_service_user" =~ ^[Yy]$ ]]; then
+		add_user
+	else
+		echo -e "${YELLOW}Skipped service user creation.${NC}"
+		echo -e "${YELLOW}Create one later with:${NC}"
+		echo -e "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL}) -a'"
 	fi
 }
 
 function add_user() {
 	if [ "$EUID" -ne 0 ]; then
-		echo "Please run this script with sudo."
+		echo -e "${RED}Please run elevated with sudo.${NC}"
+		echo -e "${YELLOW}  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL}) -a'${NC}"
 		_safe_exit 1
 	fi
 
@@ -322,6 +355,40 @@ function init_deployment() {
 	echo -e "  ./deploy.sh --help"
 }
 
+_handle_no_args() {
+	local prereqs_just_installed=false
+
+	if ! _prerequisites_installed; then
+		if [ "$EUID" -ne 0 ]; then
+			echo -e "${RED}Prerequisites are not installed.${NC}"
+			echo -e "${YELLOW}Run elevated with sudo:${NC}"
+			echo -e "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL})'"
+			_safe_exit 1
+		fi
+		echo -e "${YELLOW}Prerequisites not found. Installing automatically...${NC}"
+		install_docker
+		prereqs_just_installed=true
+	fi
+
+	if [ "$EUID" -eq 0 ]; then
+		if [ "$prereqs_just_installed" = true ]; then
+			echo -e "${GREEN}Prerequisites installed successfully.${NC}"
+			_prompt_add_service_user
+		else
+			echo -e "${GREEN}Prerequisites are already installed.${NC}"
+			echo -e "${BLUE}Next step — switch to the service user, or create one with:${NC}"
+			echo -e "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL}) -a'"
+		fi
+		return 0
+	fi
+
+	if _deploy_dir_empty; then
+		init_deployment
+	else
+		show_help
+	fi
+}
+
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
 	show_help
 	_safe_exit 0
@@ -329,6 +396,7 @@ fi
 
 if [ "$1" = "--install-prerequisites" ] || [ "$1" = "-p" ]; then
 	install_docker
+	_prompt_add_service_user
 	_safe_exit 0
 fi
 
@@ -343,11 +411,7 @@ if [ "$1" = "--init" ] || [ "$1" = "-i" ]; then
 fi
 
 if [ -z "$1" ]; then
-	if _deploy_dir_empty; then
-		init_deployment
-	else
-		show_help
-	fi
+	_handle_no_args
 	_safe_exit 0
 fi
 
