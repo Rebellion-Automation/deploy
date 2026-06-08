@@ -115,13 +115,12 @@ function show_help() {
 	echo ""
 	echo "First-time setup (fresh Debian server):"
 	echo ""
-	echo "  # 1. As root — installs prerequisites and prompts to create the service user"
+	echo "  # 1. As root — installs prerequisites, creates the service user, and"
+	echo "  #    prompts to clone the repo into ${DEPLOY_DIR}"
 	echo "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL})'"
 	echo ""
-	echo "  # 2. Switch to the service user"
+	echo "  # 2. If you skipped initialization, switch to the service user and run:"
 	echo "  su <username>"
-	echo ""
-	echo "  # 3. Initialize deployment (auto-runs if ${DEPLOY_DIR} is empty)"
 	echo "  source <(curl -s ${GITHUB_RAW_URL})"
 	echo ""
 	echo "After initialization, run all further commands from ${DEPLOY_DIR}:"
@@ -163,7 +162,7 @@ function install_docker() {
 
 	echo -e "Do you want to add the current user to the docker group? (y/n)"
 	echo -e "If you want a dedicated service user instead, select no — you will be prompted to create one next."
-	read -p "Choice: " add_current_user
+	read -p "(Y/N) " add_current_user
 	if [[ "$add_current_user" =~ ^[Yy]$ ]]; then
 		target_user="${SUDO_USER:-$USER}"
 		if [ -z "$target_user" ] || [ "$target_user" = "root" ]; then
@@ -187,16 +186,39 @@ _prompt_add_service_user() {
 	fi
 
 	echo ""
-	echo -e "Do you want to create the service user now? (y/n)"
+	echo -e "Do you want to create the service user now? (Y/n)"
 	echo -e "The service user will own ${DEPLOY_ROOT} and run deployments."
 	read -p "Choice: " create_service_user
-	if [[ "$create_service_user" =~ ^[Yy]$ ]]; then
+	if [[ ! "$create_service_user" =~ ^[Nn]$ ]]; then
 		add_user
 	else
 		echo -e "${YELLOW}Skipped service user creation.${NC}"
 		echo -e "${YELLOW}Create one later with:${NC}"
 		echo -e "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL}) -a'"
 	fi
+}
+
+_run_init_as_user() {
+	local username=$1
+	echo -e "${GREEN}Initializing deployment as ${username}...${NC}"
+	su - "$username" -c "source <(curl -s ${GITHUB_RAW_URL})"
+}
+
+_prompt_init_deployment() {
+	local username=$1
+
+	echo ""
+	echo -e "Initialize deployment now? (clone repo to ${DEPLOY_DIR}) (Y/n)"
+	read -p "Choice: " do_init
+	if [[ "$do_init" =~ ^[Nn]$ ]]; then
+		echo -e "${YELLOW}Skipped initialization.${NC}"
+		echo -e "${BLUE}Next steps:${NC}"
+		echo -e "  su ${username}"
+		echo -e "  source <(curl -s ${GITHUB_RAW_URL})"
+		return 0
+	fi
+
+	_run_init_as_user "$username"
 }
 
 function add_user() {
@@ -257,12 +279,7 @@ function add_user() {
 
 	echo -e "${GREEN}User $username has been created and added to the docker group.${NC}"
 	echo -e "${GREEN}${DEPLOY_ROOT} is owned by $username.${NC}"
-	echo ""
-	echo -e "${BLUE}Next steps:${NC}"
-	echo -e "  su ${username}"
-	echo -e "  source <(curl -s ${GITHUB_RAW_URL})"
-	echo ""
-	echo -e "${YELLOW}After initialization, run further commands from ${DEPLOY_DIR}.${NC}"
+	_prompt_init_deployment "$username"
 }
 
 _generate_wireguard_keys() {
