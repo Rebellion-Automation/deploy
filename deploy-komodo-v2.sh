@@ -40,6 +40,31 @@ _bootstrap_path() {
 	realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}"
 }
 
+_bootstrap_from_curl() {
+	local path
+	path=$(_bootstrap_path)
+	[[ "$path" == /dev/fd/* || "$path" == /proc/*/fd/* ]]
+}
+
+_is_known_flag() {
+	case "$1" in
+		-h | --help | -p | --install-prerequisites | -a | --add-user | -i | --init)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+_normalize_args() {
+	# Sourced scripts inherit the caller's positional parameters; ignore stray
+	# values when bootstrapping via curl unless an explicit flag was passed.
+	if _is_sourced && _bootstrap_from_curl && [ $# -gt 0 ] && ! _is_known_flag "$1"; then
+		set --
+	fi
+}
+
 _deploy_dir_empty() {
 	[ ! -d "$DEPLOY_DIR" ] || [ -z "$(ls -A "$DEPLOY_DIR" 2>/dev/null)" ]
 }
@@ -406,6 +431,8 @@ _handle_no_args() {
 	fi
 }
 
+_normalize_args "$@"
+
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
 	show_help
 	_safe_exit 0
@@ -428,6 +455,17 @@ if [ "$1" = "--init" ] || [ "$1" = "-i" ]; then
 fi
 
 if [ -z "$1" ]; then
+	_handle_no_args
+	_safe_exit 0
+fi
+
+# After initial setup, show help instead of erroring on stray arguments.
+if [ -d "$DEPLOY_DIR" ] && [ -n "$(ls -A "$DEPLOY_DIR" 2>/dev/null)" ]; then
+	show_help
+	_safe_exit 0
+fi
+
+if [ "$EUID" -eq 0 ] && _prerequisites_installed; then
 	_handle_no_args
 	_safe_exit 0
 fi
