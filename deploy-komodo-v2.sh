@@ -23,6 +23,11 @@ REPO_URL="https://github.com/Rebellion-Automation/deploy.git"
 REPO_BRANCH="main"
 GITHUB_RAW_URL="https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy-komodo-v2.sh"
 
+WIREGUARD_CONF="/etc/wireguard/wg0.conf"
+WIREGUARD_SPOKE_ADDRESS="10.0.0.2/24"
+WIREGUARD_HUB_ADDRESS="10.0.0.1/32"
+WIREGUARD_HUB_PORT="51820"
+
 _is_sourced() {
 	[[ "${BASH_SOURCE[0]}" != "${0}" ]]
 }
@@ -132,7 +137,8 @@ function show_help() {
 	echo "  -i, --init"
 	echo "      Clone the deployment repository to ${DEPLOY_DIR}, generate a WireGuard"
 	echo "      keypair for telemetry, and cd into it. When sourced, the directory"
-	echo "      change persists in your shell."
+	echo "      change persists in your shell. During initial sudo setup, you may also"
+	echo "      be prompted to write a WireGuard client config to ${WIREGUARD_CONF}."
 	echo ""
 	echo "General Options:"
 	echo "  -h, --help"
@@ -223,10 +229,25 @@ _prompt_add_service_user() {
 	fi
 }
 
+_print_subsequent_run_note() {
+	local username=$1
+
+	echo ""
+	echo -e "${YELLOW}Note:${NC} You are still running as root. For any subsequent script runs, switch to the service user first:"
+	echo -e "  su ${username}"
+	echo -e "  cd ${DEPLOY_DIR} && ./deploy.sh [flags]"
+}
+
 _run_init_as_user() {
 	local username=$1
 	echo -e "${GREEN}Initializing deployment as ${username}...${NC}"
-	su - "$username" -c "source <(curl -s ${GITHUB_RAW_URL})"
+	if su - "$username" -c "source <(curl -s ${GITHUB_RAW_URL})"; then
+		_prompt_wireguard_config
+		_print_subsequent_run_note "$username"
+	else
+		echo -e "${RED}Initialization failed.${NC}"
+		return 1
+	fi
 }
 
 _prompt_init_deployment() {
@@ -343,6 +364,64 @@ _generate_wireguard_keys() {
 	echo -e "${YELLOW}Private key stored at ${WIREGUARD_PRIVATE_KEY} (keep secret).${NC}"
 }
 
+_prompt_wireguard_config() {
+	if [ "$EUID" -ne 0 ]; then
+		return 0
+	fi
+
+	if [ ! -f "$WIREGUARD_PRIVATE_KEY" ]; then
+		echo -e "${YELLOW}WireGuard private key not found at ${WIREGUARD_PRIVATE_KEY}; skipping client configuration.${NC}"
+		return 0
+	fi
+
+	if [ -f "$WIREGUARD_CONF" ]; then
+		echo -e "${YELLOW}WireGuard configuration already exists at ${WIREGUARD_CONF}.${NC}"
+		return 0
+	fi
+
+	echo ""
+	echo -e "Initialize WireGuard client configuration at ${WIREGUARD_CONF}? (y/n)"
+	read -p "(Y/N) " init_wg
+	if [[ ! "$init_wg" =~ ^[Yy]$ ]]; then
+		echo -e "${YELLOW}Skipped WireGuard client configuration.${NC}"
+		return 0
+	fi
+
+	local hub_public_key hub_endpoint private_key
+	read -p "Enter the hub public key (HUB_PUBLIC_KEY): " hub_public_key
+	if [ -z "$hub_public_key" ]; then
+		echo -e "${RED}Hub public key cannot be empty.${NC}"
+		return 1
+	fi
+
+	read -p "Enter the hub public IP or domain (HUB_PUBLIC_IP): " hub_endpoint
+	if [ -z "$hub_endpoint" ]; then
+		echo -e "${RED}Hub endpoint cannot be empty.${NC}"
+		return 1
+	fi
+
+	private_key=$(cat "$WIREGUARD_PRIVATE_KEY")
+
+	install -m 0755 -d /etc/wireguard
+	umask 077
+	cat > "$WIREGUARD_CONF" <<EOF
+[Interface]
+PrivateKey = ${private_key}
+Address = ${WIREGUARD_SPOKE_ADDRESS}
+
+[Peer]
+PublicKey = ${hub_public_key}
+AllowedIPs = ${WIREGUARD_HUB_ADDRESS}
+Endpoint = ${hub_endpoint}:${WIREGUARD_HUB_PORT}
+PersistentKeepalive = 25
+EOF
+	chmod 600 "$WIREGUARD_CONF"
+	umask 022
+
+	echo -e "${GREEN}WireGuard configuration written to ${WIREGUARD_CONF}${NC}"
+	echo -e "${YELLOW}Enable the tunnel with: systemctl enable --now wg-quick@wg0${NC}"
+}
+
 function init_deployment() {
 	if ! command -v git &>/dev/null; then
 		echo -e "${RED}Git is not installed. Please run the --install-prerequisites flag first.${NC}"
@@ -387,6 +466,9 @@ function init_deployment() {
 	echo -e "${GREEN}Working directory is now: $(pwd)${NC}"
 	echo ""
 	_generate_wireguard_keys
+	if [ "$EUID" -eq 0 ]; then
+		_prompt_wireguard_config
+	fi
 	echo ""
 	_print_bootstrap_cleanup
 	echo ""
