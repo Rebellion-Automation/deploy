@@ -17,11 +17,10 @@ sudo bash /tmp/setup.sh
 
 Press **Enter** (or **y**) at each prompt to accept defaults — prerequisites, service user, and repo clone happen in one session.
 
-If you skipped initialization, switch to the service user and run the script again (no sudo):
+If you skipped initialization, switch to the service user and run the script left at `/tmp/setup.sh` (no sudo):
 
 ```bash
 su [username]
-curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy-komodo-v2.sh | tee /tmp/setup.sh > /dev/null
 bash /tmp/setup.sh
 ```
 
@@ -43,8 +42,6 @@ If initialization was skipped during setup, switch to the service user — **do 
 
 ```bash
 su [username]
-
-curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy-komodo-v2.sh | tee /tmp/setup.sh > /dev/null
 bash /tmp/setup.sh
 ```
 

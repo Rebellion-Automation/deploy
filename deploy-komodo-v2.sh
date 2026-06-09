@@ -4,8 +4,7 @@
 #   curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy-komodo-v2.sh | sudo tee /tmp/setup.sh > /dev/null
 #   sudo bash /tmp/setup.sh
 #
-# After creating the service user (su <username>), run without sudo:
-#   curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy-komodo-v2.sh | tee /tmp/setup.sh > /dev/null
+# After creating the service user (su <username>), run the script left at /tmp/setup.sh:
 #   bash /tmp/setup.sh
 
 # Color Codes
@@ -111,7 +110,6 @@ _print_elevated_run_hint() {
 
 _print_service_run_hint() {
 	local extra_args="${1:-}"
-	echo -e "  curl -s ${GITHUB_RAW_URL} | tee /tmp/setup.sh > /dev/null"
 	if [ -n "$extra_args" ]; then
 		echo -e "  bash /tmp/setup.sh ${extra_args}"
 	else
@@ -135,8 +133,7 @@ function show_help() {
 	echo "Usage:"
 	echo "  curl -s ${GITHUB_RAW_URL} | sudo tee /tmp/setup.sh > /dev/null   (initial setup)"
 	echo "  sudo bash /tmp/setup.sh [OPTIONS]"
-	echo "  curl -s ${GITHUB_RAW_URL} | tee /tmp/setup.sh > /dev/null        (service user)"
-	echo "  bash /tmp/setup.sh [OPTIONS]"
+	echo "  bash /tmp/setup.sh [OPTIONS]                                     (service user)"
 	echo "  ${DEPLOY_DIR}/deploy.sh [OPTIONS]                                  (after init)"
 	echo ""
 	echo "  Run elevated with sudo for --install-prerequisites and --add-user."
@@ -169,7 +166,6 @@ function show_help() {
 	echo ""
 	echo "  # 2. If you skipped initialization, switch to the service user and run:"
 	echo "  su <username>"
-	echo "  curl -s ${GITHUB_RAW_URL} | tee /tmp/setup.sh > /dev/null"
 	echo "  bash /tmp/setup.sh"
 	echo ""
 	echo "After initialization, run all further commands from ${DEPLOY_DIR}:"
@@ -259,7 +255,7 @@ _print_subsequent_run_note() {
 _run_init_as_user() {
 	local username=$1
 	echo -e "${GREEN}Initializing deployment as ${username}...${NC}"
-	if su - "$username" -c "curl -s ${GITHUB_RAW_URL} | tee /tmp/setup.sh > /dev/null && bash /tmp/setup.sh"; then
+	if su - "$username" -c "bash /tmp/setup.sh"; then
 		_prompt_wireguard_config
 		_print_subsequent_run_note "$username"
 	else
