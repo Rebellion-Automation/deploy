@@ -401,7 +401,10 @@ _prompt_wireguard_config() {
 		return 0
 	fi
 
-	local hub_public_key hub_endpoint private_key
+	local hub_public_key hub_endpoint private_key spoke_address
+	read -p "Enter this machine's WireGuard IP (CIDR) [${WIREGUARD_SPOKE_ADDRESS}]: " spoke_address
+	spoke_address="${spoke_address:-$WIREGUARD_SPOKE_ADDRESS}"
+
 	read -p "Enter the hub public key (HUB_PUBLIC_KEY): " hub_public_key
 	if [ -z "$hub_public_key" ]; then
 		echo -e "${RED}Hub public key cannot be empty.${NC}"
@@ -421,7 +424,7 @@ _prompt_wireguard_config() {
 	cat > "$WIREGUARD_CONF" <<EOF
 [Interface]
 PrivateKey = ${private_key}
-Address = ${WIREGUARD_SPOKE_ADDRESS}
+Address = ${spoke_address}
 
 [Peer]
 PublicKey = ${hub_public_key}
