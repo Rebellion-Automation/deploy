@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # Initial setup requires elevation (run as root or via sudo):
-#   sudo bash -c 'source <(curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy-komodo-v2.sh)'
+#   curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy-komodo-v2.sh | sudo tee /tmp/setup.sh > /dev/null
+#   sudo bash /tmp/setup.sh
 #
-# After creating the service user (su <username>), run without sudo so init can
-# clone to /opt/rebellion and cd persists in your shell:
-#   source <(curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy-komodo-v2.sh)
+# After creating the service user (su <username>), run without sudo:
+#   curl -s https://raw.githubusercontent.com/Rebellion-Automation/deploy/refs/heads/main/deploy-komodo-v2.sh | tee /tmp/setup.sh > /dev/null
+#   bash /tmp/setup.sh
 
 # Color Codes
 RED='\033[0;31m'
@@ -98,18 +99,32 @@ _check_docker_accessible() {
 	return 0
 }
 
+_print_elevated_run_hint() {
+	local extra_args="${1:-}"
+	echo -e "  curl -s ${GITHUB_RAW_URL} | sudo tee /tmp/setup.sh > /dev/null"
+	if [ -n "$extra_args" ]; then
+		echo -e "  sudo bash /tmp/setup.sh ${extra_args}"
+	else
+		echo -e "  sudo bash /tmp/setup.sh"
+	fi
+}
+
+_print_service_run_hint() {
+	local extra_args="${1:-}"
+	echo -e "  curl -s ${GITHUB_RAW_URL} | tee /tmp/setup.sh > /dev/null"
+	if [ -n "$extra_args" ]; then
+		echo -e "  bash /tmp/setup.sh ${extra_args}"
+	else
+		echo -e "  bash /tmp/setup.sh"
+	fi
+}
+
 _print_bootstrap_cleanup() {
 	local bootstrap_path
 	bootstrap_path=$(_bootstrap_path)
 
-	if _is_sourced && [[ "$bootstrap_path" == /dev/fd/* || "$bootstrap_path" == /proc/*/fd/* ]]; then
-		echo -e "${YELLOW}This script was sourced from curl (no on-disk bootstrap copy).${NC}"
-		echo -e "${YELLOW}If you saved a copy elsewhere (e.g. /usr/local/sbin/deploy.sh), remove it with:${NC}"
-		echo -e "  rm /path/to/saved/deploy.sh"
-	else
-		echo -e "${YELLOW}Remove the bootstrap copy with:${NC}"
-		echo -e "  rm \"${bootstrap_path}\""
-	fi
+	echo -e "${YELLOW}Remove the bootstrap copy with:${NC}"
+	echo -e "  rm \"${bootstrap_path}\""
 }
 
 function show_help() {
@@ -118,9 +133,11 @@ function show_help() {
 	echo "╚══════════════════════════════════════════════════════════════════════════════╝"
 	echo ""
 	echo "Usage:"
-	echo "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL}) [OPTIONS]'   (initial setup)"
-	echo "  source <(curl -s ${GITHUB_RAW_URL}) [OPTIONS]                    (service user)"
-	echo "  ${DEPLOY_DIR}/deploy.sh [OPTIONS]                                (after init)"
+	echo "  curl -s ${GITHUB_RAW_URL} | sudo tee /tmp/setup.sh > /dev/null   (initial setup)"
+	echo "  sudo bash /tmp/setup.sh [OPTIONS]"
+	echo "  curl -s ${GITHUB_RAW_URL} | tee /tmp/setup.sh > /dev/null        (service user)"
+	echo "  bash /tmp/setup.sh [OPTIONS]"
+	echo "  ${DEPLOY_DIR}/deploy.sh [OPTIONS]                                  (after init)"
 	echo ""
 	echo "  Run elevated with sudo for --install-prerequisites and --add-user."
 	echo "  Without flags, missing prerequisites are installed automatically (root only),"
@@ -136,8 +153,7 @@ function show_help() {
 	echo ""
 	echo "  -i, --init"
 	echo "      Clone the deployment repository to ${DEPLOY_DIR}, generate a WireGuard"
-	echo "      keypair for telemetry, and cd into it. When sourced, the directory"
-	echo "      change persists in your shell. During initial sudo setup, you may also"
+	echo "      keypair for telemetry, and cd into it. During initial sudo setup, you may also"
 	echo "      be prompted to write a WireGuard client config to ${WIREGUARD_CONF}."
 	echo ""
 	echo "General Options:"
@@ -148,11 +164,13 @@ function show_help() {
 	echo ""
 	echo "  # 1. As root — installs prerequisites, creates the service user, and"
 	echo "  #    prompts to clone the repo into ${DEPLOY_DIR}"
-	echo "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL})'"
+	echo "  curl -s ${GITHUB_RAW_URL} | sudo tee /tmp/setup.sh > /dev/null"
+	echo "  sudo bash /tmp/setup.sh"
 	echo ""
 	echo "  # 2. If you skipped initialization, switch to the service user and run:"
 	echo "  su <username>"
-	echo "  source <(curl -s ${GITHUB_RAW_URL})"
+	echo "  curl -s ${GITHUB_RAW_URL} | tee /tmp/setup.sh > /dev/null"
+	echo "  bash /tmp/setup.sh"
 	echo ""
 	echo "After initialization, run all further commands from ${DEPLOY_DIR}:"
 	echo "  cd ${DEPLOY_DIR} && ./deploy.sh [flags]"
@@ -162,7 +180,7 @@ function show_help() {
 function install_docker() {
 	if [ "$EUID" -ne 0 ]; then
 		echo -e "${RED}Please run elevated with sudo.${NC}"
-		echo -e "${YELLOW}  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL}) -p'${NC}"
+		_print_elevated_run_hint "-p"
 		_safe_exit 1
 	fi
 
@@ -225,7 +243,7 @@ _prompt_add_service_user() {
 	else
 		echo -e "${YELLOW}Skipped service user creation.${NC}"
 		echo -e "${YELLOW}Create one later with:${NC}"
-		echo -e "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL}) -a'"
+		_print_elevated_run_hint "-a"
 	fi
 }
 
@@ -241,7 +259,7 @@ _print_subsequent_run_note() {
 _run_init_as_user() {
 	local username=$1
 	echo -e "${GREEN}Initializing deployment as ${username}...${NC}"
-	if su - "$username" -c "source <(curl -s ${GITHUB_RAW_URL})"; then
+	if su - "$username" -c "curl -s ${GITHUB_RAW_URL} | tee /tmp/setup.sh > /dev/null && bash /tmp/setup.sh"; then
 		_prompt_wireguard_config
 		_print_subsequent_run_note "$username"
 	else
@@ -260,7 +278,7 @@ _prompt_init_deployment() {
 		echo -e "${YELLOW}Skipped initialization.${NC}"
 		echo -e "${BLUE}Next steps:${NC}"
 		echo -e "  su ${username}"
-		echo -e "  source <(curl -s ${GITHUB_RAW_URL})"
+		_print_service_run_hint
 		return 0
 	fi
 
@@ -270,7 +288,7 @@ _prompt_init_deployment() {
 function add_user() {
 	if [ "$EUID" -ne 0 ]; then
 		echo -e "${RED}Please run elevated with sudo.${NC}"
-		echo -e "${YELLOW}  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL}) -a'${NC}"
+		_print_elevated_run_hint "-a"
 		_safe_exit 1
 	fi
 
@@ -486,7 +504,7 @@ _handle_no_args() {
 		if [ "$EUID" -ne 0 ]; then
 			echo -e "${RED}Prerequisites are not installed.${NC}"
 			echo -e "${YELLOW}Run elevated with sudo:${NC}"
-			echo -e "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL})'"
+			_print_elevated_run_hint
 			_safe_exit 1
 		fi
 		echo -e "${YELLOW}Prerequisites not found. Installing automatically...${NC}"
@@ -501,7 +519,7 @@ _handle_no_args() {
 		else
 			echo -e "${GREEN}Prerequisites are already installed.${NC}"
 			echo -e "${BLUE}Next step — switch to the service user, or create one with:${NC}"
-			echo -e "  sudo bash -c 'source <(curl -s ${GITHUB_RAW_URL}) -a'"
+			_print_elevated_run_hint "-a"
 		fi
 		return 0
 	fi
